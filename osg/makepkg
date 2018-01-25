@@ -27,7 +27,6 @@ get_site_packages_dir() {
 
 # save the path of the modules site-packages
 osg_modules_site_packages_dir=$(get_site_packages_dir)
-
 # the modules set the standard environment variables CPATH and LIBRARY_PATH
 # set corresponding variables for cmake
 export CMAKE_INCLUDE_PATH=$CPATH

@@ -34,6 +34,9 @@ globus() {
   globus-url-copy \
     -verbose -create-dest -restart -stall-timeout 30 $@ \
     results $desturl
+  globus-url-copy \
+    -verbose -create-dest -restart -stall-timeout 30 $@ \
+    JetData.h5 $desturl
 }
 
 for i in {1..5}; do

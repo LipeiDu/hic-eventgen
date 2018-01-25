@@ -26,7 +26,6 @@ def run_cmd(*args):
     """
     cmd = ' '.join(args)
     logging.info('running command: %s', cmd)
-
     try:
         proc = subprocess.run(
             cmd.split(), check=True,
@@ -197,7 +196,7 @@ class StopEvent(Exception):
     """ Raise to end an event early. """
 
 
-def run_events(args, results_file, checkpoint_ic=None):
+def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     """
     Run events as determined by user input:
 
@@ -338,9 +337,8 @@ def run_events(args, results_file, checkpoint_ic=None):
             't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
             *(hydro_args_coarse if coarse else hydro_args)
         )
-
         surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
-
+        subprocess.call('mv -v ./JetData.h5 {}'.format(homefolder), shell=True)
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface.size == 0:
@@ -596,17 +594,18 @@ def main():
     # translate SIGTERM to KeyboardInterrupt
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     logging.debug('set SIGTERM handler')
-
+    
     with \
             open(args.results, filemode + 'b',
                  buffering=args.buffering) as results_file, \
             tempfile.TemporaryDirectory(
                 prefix='hic-', dir=args.tmpdir) as workdir:
+        homefolder=os.getcwd()
         os.chdir(workdir)
         logging.info('working directory: %s', workdir)
 
         try:
-            status = run_events(args, results_file, checkpoint_ic)
+            status = run_events(args, results_file, checkpoint_ic, homefolder)
         except KeyboardInterrupt:
             # after catching the initial SIGTERM or interrupt, ignore them
             # during shutdown -- this ensures everything will exit gracefully
