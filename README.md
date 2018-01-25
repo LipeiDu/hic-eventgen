@@ -10,9 +10,9 @@ _heavy-ion collision event generator_
 
 ## WK's modifications to the original [package](https://github.com/jbernhard/hic-eventgen/tree/master/osg)
 
-- These modifications only applies to the Open Science Grid (osgconnect) platform.
+- These modifications only apply to the Open Science Grid (osgconnect) platform.
 - The original package does not output hydro history. This output is activated in this version. The hydro history writing routine was written by Chun Shen and it outputs into hdf5 data format. I was have trouble to compile with gcc/6.2.0 gfortran compiler along with HDF5 library on osgconnect submitting host; instead, h5fc is used to compile the osu-hydro in this version of the package.
-- The original package transfer results from computing nodes to a destination using globus-toolkit (the globus-url-copy command). Altough it still works, the technical support end in January 2018. Therefore in this version, all computing results are returned to submitting directory resides in /stash/user/$USER. The stash storage has no limit on disk and time, it is also an endpoint of the globus cloud service.
+- The original package transfer results from computing nodes to a destination using globus-toolkit (the globus-url-copy command). Altough it still works, the technical support ended in January 2018. Therefore in this version, all computing results are returned to submitting directory resides in /stash/user/$USER. The stash storage has no limit on disk and time, it is also an endpoint of the globus cloud service.
 - Future midifications: hydro grid size? binary collision density output from TRENTo? ...
 
 ## Physics models
