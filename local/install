@@ -26,10 +26,10 @@ for i in models/*/; do
 
   # determine whether to build with CMake or python
   if [[ $i == *osu-hydro* ]]; then
-          echo "use h5fc for osu-hydro hdf5 output" 
-          module unload gcc
-          export FC=/cvmfs/oasis.opensciencegrid.org/osg/modules/hdf5/1.8.13/bin/h5fc
-          export FFLAGS='-march=x86-64 -ffast-math'
+    echo "use h5fc for osu-hydro hdf5 output" 
+    module unload gcc/6.2.0
+    export FC=/cvmfs/oasis.opensciencegrid.org/osg/modules/hdf5/1.8.13/bin/h5fc
+    export FFLAGS='-march=x86-64 -ffast-math'
   fi
 
   if [[ -f CMakeLists.txt ]]; then
@@ -68,10 +68,9 @@ for i in models/*/; do
   fi
 
   if [[ $i == *osu-hydro* ]]; then
-    module load gcc
+    module load gcc/6.2.0
     export FC=gfortran
     export FFLAGS="-march=x86-64 -mtune=intel -ffast-math"
-
   fi
 
   popd

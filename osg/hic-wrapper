@@ -5,7 +5,6 @@ uname -nr
 
 # read arguments
 inputfile=$1
-desturl=$2
 
 # load necessary modules
 source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
@@ -28,19 +27,3 @@ run-events \
   @$inputfile \
   results || exit 1
 
-# transfer results
-# try to be fault-tolerant
-globus() {
-  globus-url-copy \
-    -verbose -create-dest -restart -stall-timeout 30 $@ \
-    results $desturl
-  globus-url-copy \
-    -verbose -create-dest -restart -stall-timeout 30 $@ \
-    JetData.h5 $desturl
-}
-
-for i in {1..5}; do
-  globus && break
-  sleep 5 && false
-done || \
-  globus -no-data-channel-authentication -no-third-party-transfers
