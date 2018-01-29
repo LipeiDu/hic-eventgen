@@ -238,10 +238,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             '--nucleon-width {}'.format(args.nucleon_width),
             args.trento_args
         )
-
+        subprocess.call('cp -v {} {}'.format(initial_file, 
+                                             homefolder), shell=True)
         with h5py.File(initial_file, 'r') as f:
             for dset in f.values():
-                ic = np.array(dset)
+                ic = np.array(dset['matter_density'])
 
                 # Write the checkpoint file _before_ starting the event so that
                 # even if the process is forcefully killed, the state will be
@@ -357,6 +358,39 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             Pi=surface.T[15]
         )
 
+    def save_final_particle_list(fname, event_id):
+        with open('particles_out.dat', 'rb') as f:
+            delim = np.array([0]+[l.split()[4] for l in f if l.startswith(b'#')],
+                             dtype=int).cumsum()
+        with open('particles_out.dat', 'rb') as f:
+            parts = np.fromiter(
+                (tuple(l.split()) for l in f if not l.startswith(b'#')),
+                dtype=[
+                    ('ID', int),
+                    ('charge', int),
+                    ('pT', float),
+                    ('ET', float),
+                    ('mT', float),
+                    ('phi', float),
+                    ('y', float),
+                    ('eta', float),
+                ]
+            )
+            fout = h5py.File(homefolder+'/final_hadrons.hdf', 'a')
+            gpname = 'event_{}'.format(event_id)
+            if gpname in fout:
+                del fout[gpname]
+            gp = fout.create_group(gpname)
+            for count, (il, ih) in enumerate(zip(delim[:-1], delim[1:])):
+                gpi = gp.create_group('oversample_{}'.format(count))
+                gpi.attrs.create('N_particles', ih-il, dtype=int)
+                for name, dtype in \
+                    zip(['ID', 'charge', 'pT', 'ET', 'mT', 'phi', 'y', 'eta'],
+                        ['i8']*2+['f']*6):
+                    gpi.create_dataset(name, data=parts[name][il:ih], 
+                                       dtype=dtype)
+            fout.close()
+   
     # species (name, ID) for identified particle observables
     species = [
         ('pion', 211),
@@ -421,7 +455,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         logging.info('sampling surface with frzout')
 
-        # sample particles and write to file
         with open('particles_in.dat', 'w') as f:
             for nsamples in range(1, maxsamples + 1):
                 parts = frzout.sample(surface, hrg)
@@ -447,6 +480,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         # hadronic afterburner
         run_cmd('afterburner particles_in.dat particles_out.dat')
+        # save a oversampled final particle list 
+        subprocess.call('cp -v particles_out.dat {}'.format(homefolder), shell=True)
 
         # read final particle data
         with open('particles_out.dat', 'rb') as f:
@@ -463,7 +498,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                     ('eta', float),
                 ]
             )
-
         logging.info('computing observables')
         charged = (parts['charge'] != 0)
         abs_eta = np.fabs(parts['eta'])
@@ -502,11 +536,14 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     nfail = 0
 
     # run each initial condition event and save results to file
-    for n, ic in enumerate(initial_conditions, start=1):
+    for n, ic in enumerate(initial_conditions, start=0):
         logging.info('starting event %d', n)
 
         try:
             run_single_event(ic)
+            # save a copy of oversampled final particle list 
+            save_final_particle_list('particles_out.dat', n)
+
         except StopEvent as e:
             logging.info('event stopped: %s', e)
         except Exception:

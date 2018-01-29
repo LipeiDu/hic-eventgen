@@ -39,9 +39,7 @@ To run 10,000 events (1000 jobs) for each input file:
 
 ## Data transfer
 
-As currently written, results filed are transferred to a server at Duke University via GridFTP, using the `globus-url-copy` command-line tool in `hic-wrapper`.
-However, support for the open source Globus toolkit will end (or has ended) [in January 2018](https://github.com/globus/globus-toolkit/blob/globus_6_branch/support-changes.md), so a new data transfer mechanism will be necessary.
-OSG support has a page on [data transfer with Globus](https://support.opensciencegrid.org/support/solutions/articles/5000632397-data-transfer-with-globus), which might be the best solution.
+The data files are returned to the submitting directory. 
+On OSGCONNECT, the submitting directory resides in the /stash/user/$USER directory. It offers a long term data storage, and it is also an endpoint of globus cloud service.
+On OSGXSEDE, one may use the old globus toolkit.
 
-I will not have time to address this myself.
-It would be great if someone could figure out a new data transfer mechanism and make the necessary changes to `hic-wrapper` and `submit` (probably remove any references to the grid proxy).
