@@ -480,8 +480,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         # hadronic afterburner
         run_cmd('afterburner particles_in.dat particles_out.dat')
-        # save a oversampled final particle list 
-        subprocess.call('cp -v particles_out.dat {}'.format(homefolder), shell=True)
 
         # read final particle data
         with open('particles_out.dat', 'rb') as f:
@@ -536,13 +534,14 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     nfail = 0
 
     # run each initial condition event and save results to file
-    for n, ic in enumerate(initial_conditions, start=0):
+    for n, ic in enumerate(initial_conditions, start=1):
         logging.info('starting event %d', n)
 
         try:
             run_single_event(ic)
             # save a copy of oversampled final particle list 
-            save_final_particle_list('particles_out.dat', n)
+            # its numbering still starts from 0
+            save_final_particle_list('particles_out.dat', n-1)
 
         except StopEvent as e:
             logging.info('event stopped: %s', e)
