@@ -236,7 +236,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             '--grid-step {} --grid-max {}'.format(grid_step, grid_max_target),
             '--output', initial_file,
             '--nucleon-width {}'.format(args.nucleon_width),
-            args.trento_args
+            args.trento_args,
         )
         subprocess.call('cp -v {} {}'.format(initial_file, 
                                              homefolder), shell=True)
@@ -340,6 +340,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         )
         surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
         subprocess.call('mv -v ./JetData.h5 {}'.format(homefolder), shell=True)
+        subprocess.call('mv -v ./surface.dat {}'.format(homefolder), shell=True)
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface.size == 0:
@@ -419,6 +420,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         ('mean_pT', [(s, float_t) for (s, _) in species]),
         ('pT_fluct', [('N', int_t), ('sum_pT', float_t), ('sum_pTsq', float_t)]),
         ('flow', [('N', int_t), ('Qn', complex_t, 8)]),
+        ('Psi_n', [ ('mean', float_t, 4), ('err', float_t, 4) ]),
+        ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
     ])
 
     def run_single_event(ic):
@@ -452,6 +455,43 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
         minparts = 10**5  # min number of particles to sample
         nparts = 0  # for tracking total number of sampled particles
+
+        #logging.info('calculate energy flow planes @ freezeout')
+        #Psi_energy_flow = frzout.energy_flow_planes(surface, hrg)
+        logging.info('calculating event planes @ freezeout')
+        count = 0
+        phi = np.empty(0)
+        while count < 10**6:
+            parts = frzout.sample(surface, hrg)
+            count += parts.size
+            px = parts['p'][:,1]
+            py = parts['p'][:,2]
+            phi = np.append(phi, np.arctan2(py, px))
+        EP_freezeout = {}
+        for n in [2,3,4,5]:
+            qy = np.sin(n*phi)
+            Qy = qy.mean()
+            qx = np.cos(n*phi)
+            Qx = qx.mean()
+            Ns = len(phi)
+            cov = np.cov([qy, qx])/(Ns-1.)
+            varQy = cov[0,0]; varQx = cov[1,1]; covQxQy = cov[0,1]
+            err = np.sqrt(varQy/Qx**2 + varQx*Qy**2/Qx**4 - 2.*covQxQy*Qy/Qx**3) \
+                  /n/(1.+Qy**2/Qx**2)
+            vn2 = (Qx**2+Qy**2 - 1./Ns)/(1. - 1./Ns)
+            vn2err = 2.*np.sqrt(Qx**2*varQx + Qy**2*varQy + 2.*Qx*Qy*covQxQy)\
+                        /(1. - 1./Ns)
+            EP_freezeout[n] = {'V_n^2' : {'mean': vn2, 'err': vn2err},
+                               'Psi_n': {'mean': np.arctan2(Qy, Qx)/n, 'err': err}}
+
+        #print(Psi_energy_flow)
+        print(EP_freezeout)
+
+        for obs in ['V_n^2', 'Psi_n']:
+            for value in ['mean', 'err']:
+                results[obs][value] = \
+                    np.array([EP_freezeout[n][obs][value] for n in [2,3,4,5]])
+
 
         logging.info('sampling surface with frzout')
 
@@ -509,10 +549,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         abs_ID = np.abs(parts['ID'])
         midrapidity = (np.fabs(parts['y']) < .5)
-
         pT = parts['pT']
         phi = parts['phi']
-
         for name, i in species:
             cut = (abs_ID == i) & midrapidity
             N = np.count_nonzero(cut)
