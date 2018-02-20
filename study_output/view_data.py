@@ -59,12 +59,11 @@ data_type=[
     ('Psi_n', [ ('mean', float_t, 4), ('err', float_t, 4) ]),
     ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
 ]
+
 def load_results():    
     data = np.fromfile('results', dtype=data_type)
     return data
-    
-    
-        
+            
 if __name__ == '__main__':
 	print(__doc__)
 	print("#######Surface data##########")

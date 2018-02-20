@@ -1,7 +1,0 @@
-nevents= 1
-nucleon-width= 0.9
-tau-fs= 1.0
-trento-args= Pb Pb -n 14.4 -p 0. -k 1.0 --ncoll
-hydro-args= min=0.08 slope=1.1 curvature=-0.5 zetas_max=0.05 zetas_width=0.02 zetas_t0=0.180 iskip_t=5 iskip_xy=2
-Tswitch= 0.151
-
