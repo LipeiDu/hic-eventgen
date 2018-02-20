@@ -238,7 +238,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             '--nucleon-width {}'.format(args.nucleon_width),
             args.trento_args,
         )
-        subprocess.call('cp -v {} {}'.format(initial_file, 
+        subprocess.call('cp {} {}'.format(initial_file, 
                                              homefolder), shell=True)
         with h5py.File(initial_file, 'r') as f:
             for dset in f.values():
@@ -339,8 +339,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             *(hydro_args_coarse if coarse else hydro_args)
         )
         surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
-        subprocess.call('mv -v ./JetData.h5 {}'.format(homefolder), shell=True)
-        subprocess.call('mv -v ./surface.dat {}'.format(homefolder), shell=True)
+        subprocess.call('mv ./JetData.h5 {}'.format(homefolder), shell=True)
+        subprocess.call('mv ./surface.dat {}'.format(homefolder), shell=True)
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface.size == 0:
@@ -485,7 +485,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                                'Psi_n': {'mean': np.arctan2(Qy, Qx)/n, 'err': err}}
 
         #print(Psi_energy_flow)
-        print(EP_freezeout)
+        #print(EP_freezeout)
 
         for obs in ['V_n^2', 'Psi_n']:
             for value in ['mean', 'err']:
