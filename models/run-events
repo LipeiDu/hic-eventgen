@@ -14,7 +14,7 @@ import tempfile
 
 import numpy as np
 import h5py
-
+from scipy.interpolate import interp1d
 import freestream
 import frzout
 
@@ -190,6 +190,28 @@ parser.add_argument(
     '--Tswitch', type=float, default=.150, metavar='FLOAT',
     help='particlization temperature [GeV] (default: %(default).3f GeV)'
 )
+parser.add_argument(
+    '--centrality-def', default="entropy", metavar='ARGS',
+    help='The definition of centrality when enable centrality selection: entropy/npart/impact-parameter'
+)
+parser.add_argument(
+    '--centrality-low', type=float, default=0., metavar='FLOAT',
+    help='Lower bound of centrality cut'
+)
+parser.add_argument(
+    '--centrality-high', type=float, default=100., metavar='FLOAT',
+    help='Higher bound of centrality cut'
+)
+parser.add_argument(
+    '--system-and-sqrts', default="PbPb2760", metavar='ARGS',
+    help='Collision system concatenate with sqrts: PbPb2760/PbPb5020/AuAu200'
+)
+parser.add_argument(
+    '--norm', type=float, default=1., metavar='FLOAT',
+    help='normalization of trento'
+)
+
+
 
 
 class StopEvent(Exception):
@@ -220,7 +242,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         grid_step, grid_n, grid_max
     )
 
-    def _initial_conditions(nevents=10, initial_file='initial.hdf'):
+    def _initial_conditions(nevents=1, initial_file='initial.hdf'):
         """
         Run trento and yield initial condition arrays.
 
@@ -229,13 +251,46 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             os.remove(initial_file)
         except FileNotFoundError:
             pass
+        
+        logging.info("Use {} to define centrality.".format(args.centrality_def))
+        logging.info("{} < centrality(%) < {}".format(args.centrality_low, 
+                                                      args.centrality_high))
+        centrality_cut_args = {
+          'entropy': "--s-min  {} --s-max  {}",
+          'npart': "--npart-min  {} --npart-max {}",
+          'impact-parameter': "--b-min {} --b-max {}"
+        }[args.centrality_def]
+ 
+        def GetCenTable():
+            cl, ch, s, b, n = np.loadtxt(
+             os.environ['XDG_DATA_HOME']+'/{:s}_centrality.dat'.format(
+                                                args.system_and_sqrts ) ).T
+            cm = (cl+ch)/2.
+            s *= args.norm
+            return {
+           'entropy': interp1d(cm, s, kind='linear', fill_value='extrapolate'),
+           'npart': interp1d(cm, n, kind='linear', fill_value='extrapolate'),
+           'impact-parameter': interp1d(cm, b, kind='linear', fill_value='extrapolate')
+                   } 
+        CenTable = GetCenTable()    
 
+        cutlow, cuthigh = {
+          'entropy': [CenTable['entropy'](args.centrality_high), 
+                      CenTable['entropy'](args.centrality_low) ],
+          'npart'  : [int(CenTable['npart'](args.centrality_high)),
+                      int(CenTable['npart'](args.centrality_low)) ],
+          'impact-parameter': [CenTable['impact-parameter'](args.centrality_low),
+                               CenTable['impact-parameter'](args.centrality_high) ]
+        }[args.centrality_def]
+        logging.info("--> {} < {} < {}".format(cutlow, args.centrality_def, cuthigh))
         run_cmd(
             'trento',
             '--number-events {}'.format(nevents),
             '--grid-step {} --grid-max {}'.format(grid_step, grid_max_target),
             '--output', initial_file,
             '--nucleon-width {}'.format(args.nucleon_width),
+            '--normalization {}'.format(args.norm),
+            centrality_cut_args.format(cutlow, cuthigh),
             args.trento_args,
         )
         subprocess.call('cp {} {}'.format(initial_file, 

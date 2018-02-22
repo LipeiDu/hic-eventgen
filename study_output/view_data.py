@@ -57,6 +57,7 @@ data_type=[
     ('pT_fluct', [('N', int_t), ('sum_pT', float_t), ('sum_pTsq', float_t)]),
     ('flow', [('N', int_t), ('Qn', complex_t, 8)]),
     ('Psi_n', [ ('mean', float_t, 4), ('err', float_t, 4) ]),
+    # Note that the sqaure of Vn is stored.
     ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
 ]
 
