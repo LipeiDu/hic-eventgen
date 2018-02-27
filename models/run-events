@@ -358,7 +358,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         dxy = grid_step * (coarse or 1)
         ls = math.ceil(event_size/dxy)  # the osu-hydro "ls" parameter
         n = 2*ls + 1  # actual number of grid cells
-
         for fmt, f, arglist in [
                 ('ed', fs.energy_density, [()]),
                 ('u{}', fs.flow_velocity, [(1,), (2,)]),
@@ -388,7 +387,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                 X.tofile(fmt.format(*a) + '.dat')
 
         dt = dxy*dt_ratio
-
         run_cmd(
             'osu-hydro',
             't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
@@ -482,6 +480,77 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
     ])
 
+    def save_fs(ic, event_size, taufs, steps=10, coarse=False):
+        f = h5py.File('FreeStream.h5')
+        dxy = grid_step*(coarse or 1)
+        ls = math.ceil(event_size/dxy)
+        n = 2*ls + 1
+        NX, NY = ic.shape
+        # skip tau=0+, since the energy density diverges
+        taus = np.linspace(0, taufs, steps+1)[1:]
+        dtau = taus[1]-taus[0]
+        gp = f.create_group('Event')
+        gp.attrs.create('XL', -ls)
+        gp.attrs.create('XH', ls)
+        gp.attrs.create('YL', -ls)
+        gp.attrs.create('YH', ls)
+        gp.attrs.create('Tau0', dtau)
+        gp.attrs.create('dTau', dtau) 
+        gp.attrs.create('DX', grid_step)
+        gp.attrs.create('DY', grid_step)
+        gp.attrs.create('NTau', steps)
+        for itau, tau in enumerate(taus):
+            frame = gp.create_group('Frame_{:04d}'.format(itau))
+            fs = freestream.FreeStreamer(ic, grid_max, tau)
+            for fmt, data, arglist in [
+                ('e', fs.energy_density, [()]),
+                ('V{}', fs.flow_velocity, [(1,), (2,)]),
+                ('Pi{}{}', fs.shear_tensor, [(0,0), (0,1), (0,2),
+                                                    (1,1), (1,2),
+                                                           (2,2)] ),
+                ]:
+                for a in arglist:
+                    X = data(*a).T # to get the correct x-y with vishnew
+                    if fmt == 'V{}':
+                        X = X/data(0).T
+                    if coarse:
+                        X = X[::coarse, ::coarse]
+                    diff = X.shape[0] - n
+                    start = int(abs(diff)/2)
+
+                    if diff > 0:
+                        # original grid is larger -> cut out middle square
+                        s = slice(start, start + n)
+                        X = X[s, s]
+                    elif diff < 0:
+                        # original grid is smaller
+                        #  -> create new array and place original grid in middle
+                        Xn = np.zeros((n, n))
+                        s = slice(start, start + X.shape[0])
+                        Xn[s, s] = X
+                        X = Xn
+                    if fmt == 'V{}':
+                        Comp = {1:'x', 2:'y'}
+                        frame.create_dataset(fmt.format(Comp[a[0]]), data=X)
+                    if fmt == 'e':
+                        frame.create_dataset(fmt.format(*a), data=X)
+                        frame.create_dataset('P', data=X/3.)
+                        frame.create_dataset('BulkPi', data=X*0.)
+                        prefactor = 1.0/15.62687/5.068**3 
+                        frame.create_dataset('Temp', data=(X*prefactor)**0.25)
+                        s = (X + frame['P'].value)/(frame['Temp'].value+1e-14)
+                        frame.create_dataset('s', data=s)
+                    if fmt == 'Pi{}{}': 
+                        frame.create_dataset(fmt.format(*a), data=X)
+            pi33 = -(frame['Pi00'].value + frame['Pi11'].value \
+                                         + frame['Pi22'].value)
+            frame.create_dataset('Pi33', data=pi33)
+            pi3Z = np.zeros_like(pi33)
+            frame.create_dataset('Pi03', data=pi3Z)
+            frame.create_dataset('Pi13', data=pi3Z)
+            frame.create_dataset('Pi23', data=pi3Z)
+        f.close()
+        subprocess.call('mv ./FreeStream.h5 {}'.format(homefolder), shell=True)
     def run_single_event(ic):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
@@ -493,6 +562,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         assert all(n == grid_n for n in ic.shape)
 
+        
         logging.info(
             'free streaming initial condition for %.3f fm',
             args.tau_fs
@@ -504,6 +574,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             run_hydro(fs, event_size=27, coarse=3)['x'][:, 1:3]**2
         ).sum(axis=1).max())
         logging.info('rmax = %.3f fm', rmax)
+
+        logging.info("Save free streaming energy density history")
+        save_fs(ic, rmax, args.tau_fs, 10, coarse=2)
+
 
         # now run normal event with size set to the max radius
         # and create sampler surface object
