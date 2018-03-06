@@ -486,19 +486,21 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         ls = math.ceil(event_size/dxy)
         n = 2*ls + 1
         NX, NY = ic.shape
+        # roll ic by index 1 to match hydro
+        ic = np.roll(np.roll(ic, shift=-1, axis=0), shift=-1, axis=1)
         # skip tau=0+, since the energy density diverges
         taus = np.linspace(0, taufs, steps+1)[1:]
         dtau = taus[1]-taus[0]
         gp = f.create_group('Event')
-        gp.attrs.create('XL', -ls)
-        gp.attrs.create('XH', ls)
-        gp.attrs.create('YL', -ls)
-        gp.attrs.create('YH', ls)
-        gp.attrs.create('Tau0', dtau)
-        gp.attrs.create('dTau', dtau) 
-        gp.attrs.create('DX', grid_step)
-        gp.attrs.create('DY', grid_step)
-        gp.attrs.create('NTau', steps)
+        gp.attrs.create('XL', [-ls])
+        gp.attrs.create('XH', [ls])
+        gp.attrs.create('YL', [-ls])
+        gp.attrs.create('YH', [ls])
+        gp.attrs.create('Tau0', [dtau])
+        gp.attrs.create('dTau', [dtau]) 
+        gp.attrs.create('DX', [dxy])
+        gp.attrs.create('DY', [dxy])
+        gp.attrs.create('NTau', [steps])
         for itau, tau in enumerate(taus):
             frame = gp.create_group('Frame_{:04d}'.format(itau))
             fs = freestream.FreeStreamer(ic, grid_max, tau)
