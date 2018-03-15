@@ -182,6 +182,10 @@ parser.add_argument(
     help='trento nucleon width [fm] (default: %(default)s fm)'
 )
 parser.add_argument(
+    '--grid-step', type=float, default=.1, metavar='FLOAT',
+    help='finest grid step [fm] (default: %(default)s fm)'
+)
+parser.add_argument(
     '--trento-args', default='Pb Pb', metavar='ARGS',
     help="arguments passed to trento (default: '%(default)s')"
 )
@@ -237,7 +241,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
     """
     # set the grid step size proportionally to the nucleon width
-    grid_step = .15*args.nucleon_width
+    grid_step = args.grid_step
     # the "target" grid max: the grid shall be at least as large as the target
     grid_max_target = 15
     # next two lines set the number of grid cells and actual grid max,
