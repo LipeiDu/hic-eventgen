@@ -15,6 +15,8 @@ import tempfile
 import numpy as np
 import h5py
 from scipy.interpolate import interp1d
+from scipy.ndimage.measurements import center_of_mass
+from scipy.ndimage.interpolation import rotate, shift
 import freestream
 import frzout
 
@@ -147,6 +149,10 @@ parser.add_argument(
     help='number of events to run (default: run until interrupted)'
 )
 parser.add_argument(
+    '--avg-ic', default='off', metavar='VAR',
+    help='if on, generate 500 IC events in the centrality bin and take average'
+)
+parser.add_argument(
     '--rankvar', metavar='VAR',
     help='environment variable containing process rank'
 )
@@ -243,11 +249,45 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         grid_step, grid_n, grid_max
     )
 
-    def _initial_conditions(nevents=1, initial_file='initial.hdf'):
+    def _initial_conditions(nevents=1, initial_file='initial.hdf', avg='off'):
         """
         Run trento and yield initial condition arrays.
 
         """
+        def average_ic(fname):
+            f = h5py.File(fname, 'a')
+            densityavg = np.zeros_like(f['event_0/matter_density'].value)
+            Ncollavg = np.zeros_like(f['event_0/matter_density'].value)
+            dxy = f['event_0'].attrs['dxy']
+            Neve = len(f.values())
+            for eve in f.values():
+                # step1, center the event
+                NL = int(eve.attrs['Nx']/2)
+                density = eve['matter_density'].value
+                comxy = -np.array(center_of_mass(density))+np.array([NL, NL])
+                density = shift(density, comxy)
+                Ncoll = shift(eve['Ncoll_density'].value, comxy)
+                # step2, rotate the event to align psi2
+                psi2 = eve.attrs['psi2']
+                imag_psi2 = psi2*180./np.pi + (90. if psi2<0 else -90.)
+                densityavg += rotate(density, angle=imag_psi2, reshape=False)
+                Ncollavg += rotate(Ncoll, angle=imag_psi2, reshape=False)    
+            # step3 take average
+            densityavg /= Neve
+            Ncollavg /= Neve
+            f.close()
+            # clean up the initial.hdf file
+            f = h5py.File(fname,'w')
+            for k in f:
+                del f[k]
+            gp = f.create_group('avg_event')
+            gp.create_dataset('matter_density', data=densityavg)
+            gp.create_dataset('Ncoll_density', data=Ncollavg)
+            gp.attrs.create('Nx', densityavg.shape[1])
+            gp.attrs.create('Ny', densityavg.shape[0])
+            gp.attrs.create('dxy', dxy)            
+            f.close()
+
         try:
             os.remove(initial_file)
         except FileNotFoundError:
@@ -274,32 +314,50 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
            'impact-parameter': interp1d(cm, b, kind='linear', fill_value='extrapolate')
                    } 
         CenTable = GetCenTable()    
-
-        cutlow, cuthigh = {
+        interp_cuts = {
           'entropy': [CenTable['entropy'](args.centrality_high), 
                       CenTable['entropy'](args.centrality_low) ],
           'npart'  : [int(CenTable['npart'](args.centrality_high)),
                       int(CenTable['npart'](args.centrality_low)) ],
           'impact-parameter': [CenTable['impact-parameter'](args.centrality_low),
                                CenTable['impact-parameter'](args.centrality_high) ]
-        }[args.centrality_def]
+        }
+        cutlow, cuthigh = interp_cuts[args.centrality_def]
         logging.info("--> {} < {} < {}".format(cutlow, args.centrality_def, cuthigh))
+        cut_args = centrality_cut_args.format(cutlow, cuthigh)
+        
+        if args.centrality_def != 'impact-parameter':
+            # if the cut is not impact-parameter and the bin is small, the acceptance
+            # rate of trento will be too small, to approximately solve this proble,
+            # get the impact parameter cut as well, then increase the b-range to allow 
+            # fluctuations, then apply both centrality and b-cut to event generation
+            blow, bhigh = interp_cuts['impact-parameter']
+            blow = np.max([0., blow-2.])
+            bhigh = bhigh+2.
+            logging.info("with a wider range of b-selection {} < {} < {}".format(blow, 'impact-parameter', bhigh))
+            cut_args = cut_args + " --b-min {} --b-max {}".format(blow, bhigh)
+        if avg == 'on':
+            logging.info("averaged initial condition mode, could take a while")
+
         run_cmd(
             'trento',
-            '--number-events {}'.format(nevents),
+            '--number-events {}'.format(nevents if avg=='off' else 500),
             '--grid-step {} --grid-max {}'.format(grid_step, grid_max_target),
             '--output', initial_file,
             '--nucleon-width {}'.format(args.nucleon_width),
             '--normalization {}'.format(args.norm),
-            centrality_cut_args.format(cutlow, cuthigh),
+            cut_args,
             args.trento_args,
         )
-        subprocess.call('cp {} {}'.format(initial_file, 
-                                             homefolder), shell=True)
+        if avg == 'on':
+            logging.info("taking average over 500 trento events")
+            average_ic(initial_file)
+
+        subprocess.call('cp {} {}'.format(initial_file, homefolder), shell=True)
+
         with h5py.File(initial_file, 'r') as f:
             for dset in f.values():
                 ic = np.array(dset['matter_density'])
-
                 # Write the checkpoint file _before_ starting the event so that
                 # even if the process is forcefully killed, the state will be
                 # saved.  If / when all events complete, delete the file.
@@ -307,8 +365,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                     with open(args.checkpoint, 'wb') as cf:
                         pickle.dump((args, ic), cf, pickle.HIGHEST_PROTOCOL)
                     logging.info('wrote checkpoint file %s', args.checkpoint)
-
                 yield ic
+
 
     if checkpoint_ic is None:
         # if nevents was specified, generate that number of initial conditions
@@ -316,7 +374,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         initial_conditions = (
             chain.from_iterable(_initial_conditions() for _ in repeat(None))
             if args.nevents is None else
-            _initial_conditions(args.nevents)
+            _initial_conditions(args.nevents, avg=args.avg_ic)
         )
     else:
         # just run the checkpointed IC
@@ -337,7 +395,86 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         'edec={}'.format(frzout.HRG(.110, **hrg_kwargs).energy_density())
     ]
 
-    def run_hydro(fs, event_size, coarse=False, dt_ratio=.25):
+    def save_fs_with_hydro(ic):
+        # roll ic by index 1 to match hydro
+        #ic = np.roll(np.roll(ic, shift=-1, axis=0), shift=-1, axis=1)
+        # use same grid settings as hydro output
+        f = h5py.File('JetData.h5','a')
+        taufs = f['Event'].attrs['Tau0'][0]
+        dtau = f['Event'].attrs['dTau'][0]
+        dxy = f['Event'].attrs['DX'][0]
+        ls = f['Event'].attrs['XH'][0]
+        n = 2*ls + 1
+        coarse = int(dxy/grid_step+.5)
+        # [tau0, tau0+dtau, tau0+2*dtau, ..., taufs - dtau] + hydro steps...
+        nsteps = int(taufs/dtau)
+        tau0 = taufs-dtau*nsteps
+        if tau0 < 1e-2: # if tau0 too small, skip the first step
+            tau0 += dtau
+            nsteps -= 1
+        taus = np.linspace(tau0, taufs-dtau, nsteps)
+        # First, rename hydro frames and leave the first few name slots to FS
+        event_gp = f['Event']
+        for i in range(len(event_gp.keys()))[::-1]:
+            old_name = 'Frame_{:04d}'.format(i)
+            new_name = 'Frame_{:04d}'.format(i+nsteps)
+            event_gp.move(old_name, new_name)
+        # Second, overwrite tau0 with FS starting time, and save taufs where
+        # FS and hydro is separated
+        event_gp.attrs.create('Tau0', [tau0])
+        event_gp.attrs.create('TauFS', [taufs])
+        # Thrid, fill the first fill steps with FS results
+        for itau, tau in enumerate(taus):
+            frame = event_gp.create_group('Frame_{:04d}'.format(itau))
+            fs = freestream.FreeStreamer(ic, grid_max, tau)
+            for fmt, data, arglist in [
+                ('e', fs.energy_density, [()]),
+                ('V{}', fs.flow_velocity, [(1,), (2,)]),
+                ('Pi{}{}', fs.shear_tensor, [(0,0), (0,1), (0,2),
+                                                    (1,1), (1,2),
+                                                           (2,2)] ),
+                ]:
+                for a in arglist:
+                    X = data(*a).T # to get the correct x-y with vishnew
+                    if fmt == 'V{}': # Convert u1, u2 to v1, v2
+                        X = X/data(0).T
+                    X = X[::coarse, ::coarse]
+                    diff = X.shape[0] - n
+                    start = int(abs(diff)/2)
+                    if diff > 0:
+                        # original grid is larger -> cut out middle square
+                        s = slice(start, start + n)
+                        X = X[s, s]
+                    elif diff < 0:
+                        # original grid is smaller
+                        #  -> create new array and place original grid in middle
+                        Xn = np.zeros((n, n))
+                        s = slice(start, start + X.shape[0])
+                        Xn[s, s] = X
+                        X = Xn
+                    if fmt == 'V{}':
+                        Comp = {1:'x', 2:'y'}
+                        frame.create_dataset(fmt.format(Comp[a[0]]), data=X)
+                    if fmt == 'e':
+                        frame.create_dataset(fmt.format(*a), data=X)
+                        frame.create_dataset('P', data=X/3.)
+                        frame.create_dataset('BulkPi', data=X*0.)
+                        prefactor = 1.0/15.62687/5.068**3 
+                        frame.create_dataset('Temp', data=(X*prefactor)**0.25)
+                        s = (X + frame['P'].value)/(frame['Temp'].value+1e-14)
+                        frame.create_dataset('s', data=s)
+                    if fmt == 'Pi{}{}': 
+                        frame.create_dataset(fmt.format(*a), data=X)
+            pi33 = -(frame['Pi00'].value + frame['Pi11'].value \
+                                         + frame['Pi22'].value)
+            frame.create_dataset('Pi33', data=pi33)
+            pi3Z = np.zeros_like(pi33)
+            frame.create_dataset('Pi03', data=pi3Z)
+            frame.create_dataset('Pi13', data=pi3Z)
+            frame.create_dataset('Pi23', data=pi3Z)
+        f.close()
+
+    def run_hydro(ic, event_size, coarse=False, dt_ratio=.25):
         """
         Run the initial condition contained in FreeStreamer object `fs` through
         osu-hydro on a grid with approximate physical size `event_size` [fm].
@@ -355,6 +492,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         (dt = dt_ratio * dxy).  The SHASTA algorithm requires dt_ratio < 1/2.
 
         """
+        # first freestream
+        fs = freestream.FreeStreamer(ic, grid_max, args.tau_fs)
         dxy = grid_step * (coarse or 1)
         ls = math.ceil(event_size/dxy)  # the osu-hydro "ls" parameter
         n = 2*ls + 1  # actual number of grid cells
@@ -392,11 +531,16 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
             *(hydro_args_coarse if coarse else hydro_args)
         )
+
         surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
+
         if not coarse:
             # only cp back info for the actually run, not the coarse run
-            subprocess.call('mv ./JetData.h5 {}'.format(homefolder), shell=True)
             subprocess.call('mv ./surface.dat {}'.format(homefolder), shell=True)
+            logging.info("Save free streaming history with hydro histroy")
+            save_fs_with_hydro(ic)
+            subprocess.call('mv ./JetData.h5 {}'.format(homefolder), shell=True)
+            
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
         if surface.size == 0:
@@ -480,79 +624,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
     ])
 
-    def save_fs(ic, event_size, taufs, steps=10, coarse=False):
-        f = h5py.File('FreeStream.h5')
-        dxy = grid_step*(coarse or 1)
-        ls = math.ceil(event_size/dxy)
-        n = 2*ls + 1
-        NX, NY = ic.shape
-        # roll ic by index 1 to match hydro
-        ic = np.roll(np.roll(ic, shift=-1, axis=0), shift=-1, axis=1)
-        # skip tau=0+, since the energy density diverges
-        taus = np.linspace(0, taufs, steps+1)[1:]
-        dtau = taus[1]-taus[0]
-        gp = f.create_group('Event')
-        gp.attrs.create('XL', [-ls])
-        gp.attrs.create('XH', [ls])
-        gp.attrs.create('YL', [-ls])
-        gp.attrs.create('YH', [ls])
-        gp.attrs.create('Tau0', [dtau])
-        gp.attrs.create('dTau', [dtau]) 
-        gp.attrs.create('DX', [dxy])
-        gp.attrs.create('DY', [dxy])
-        gp.attrs.create('NTau', [steps])
-        for itau, tau in enumerate(taus):
-            frame = gp.create_group('Frame_{:04d}'.format(itau))
-            fs = freestream.FreeStreamer(ic, grid_max, tau)
-            for fmt, data, arglist in [
-                ('e', fs.energy_density, [()]),
-                ('V{}', fs.flow_velocity, [(1,), (2,)]),
-                ('Pi{}{}', fs.shear_tensor, [(0,0), (0,1), (0,2),
-                                                    (1,1), (1,2),
-                                                           (2,2)] ),
-                ]:
-                for a in arglist:
-                    X = data(*a).T # to get the correct x-y with vishnew
-                    if fmt == 'V{}':
-                        X = X/data(0).T
-                    if coarse:
-                        X = X[::coarse, ::coarse]
-                    diff = X.shape[0] - n
-                    start = int(abs(diff)/2)
-
-                    if diff > 0:
-                        # original grid is larger -> cut out middle square
-                        s = slice(start, start + n)
-                        X = X[s, s]
-                    elif diff < 0:
-                        # original grid is smaller
-                        #  -> create new array and place original grid in middle
-                        Xn = np.zeros((n, n))
-                        s = slice(start, start + X.shape[0])
-                        Xn[s, s] = X
-                        X = Xn
-                    if fmt == 'V{}':
-                        Comp = {1:'x', 2:'y'}
-                        frame.create_dataset(fmt.format(Comp[a[0]]), data=X)
-                    if fmt == 'e':
-                        frame.create_dataset(fmt.format(*a), data=X)
-                        frame.create_dataset('P', data=X/3.)
-                        frame.create_dataset('BulkPi', data=X*0.)
-                        prefactor = 1.0/15.62687/5.068**3 
-                        frame.create_dataset('Temp', data=(X*prefactor)**0.25)
-                        s = (X + frame['P'].value)/(frame['Temp'].value+1e-14)
-                        frame.create_dataset('s', data=s)
-                    if fmt == 'Pi{}{}': 
-                        frame.create_dataset(fmt.format(*a), data=X)
-            pi33 = -(frame['Pi00'].value + frame['Pi11'].value \
-                                         + frame['Pi22'].value)
-            frame.create_dataset('Pi33', data=pi33)
-            pi3Z = np.zeros_like(pi33)
-            frame.create_dataset('Pi03', data=pi3Z)
-            frame.create_dataset('Pi13', data=pi3Z)
-            frame.create_dataset('Pi23', data=pi3Z)
-        f.close()
-        subprocess.call('mv ./FreeStream.h5 {}'.format(homefolder), shell=True)
     def run_single_event(ic):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
@@ -569,21 +640,16 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             'free streaming initial condition for %.3f fm',
             args.tau_fs
         )
-        fs = freestream.FreeStreamer(ic, grid_max, args.tau_fs)
 
         # run coarse event on large grid and determine max radius
         rmax = math.sqrt((
-            run_hydro(fs, event_size=27, coarse=3)['x'][:, 1:3]**2
+            run_hydro(ic, event_size=27, coarse=3)['x'][:, 1:3]**2
         ).sum(axis=1).max())
         logging.info('rmax = %.3f fm', rmax)
 
-        logging.info("Save free streaming energy density history")
-        save_fs(ic, rmax, args.tau_fs, 10, coarse=2)
-
-
         # now run normal event with size set to the max radius
         # and create sampler surface object
-        surface = frzout.Surface(**run_hydro(fs, event_size=rmax), ymax=2)
+        surface = frzout.Surface(**run_hydro(ic, event_size=rmax), ymax=2)
         logging.info('%d freeze-out cells', len(surface))
 
         minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
@@ -617,9 +683,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                         /(1. - 1./Ns)
             EP_freezeout[n] = {'V_n^2' : {'mean': vn2, 'err': vn2err},
                                'Psi_n': {'mean': np.arctan2(Qy, Qx)/n, 'err': err}}
-
-        #print(Psi_energy_flow)
-        #print(EP_freezeout)
 
         for obs in ['V_n^2', 'Psi_n']:
             for value in ['mean', 'err']:

@@ -23,9 +23,9 @@ mkdir -p $scratchdir
 
 # create local folder to store returned files
 for input_file in $inputfiles; do
-  mkdir -p $scratchdir/Results/$input_file/$timestamp
+  mkdir -p $scratchdir/Results/$(basename $input_file)/$timestamp
   for i in `seq -w 0 $(($jobsperinput-1))`; do
-    mkdir -p $scratchdir/Results/$input_file/$timestamp/event-$i
+    mkdir -p $scratchdir/Results/$(basename $input_file)/$timestamp/event-$i
   done
 done
 
@@ -91,7 +91,7 @@ arguments = \$(input_file)
 transfer_input_files = $pkgfile, \$(input_file_path)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-transfer_output_remaps = "results=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/results; JetData.h5=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/JetData.h5; final_hadrons.hdf=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/final_hadrons.hdf5; initial.hdf=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/initial.hdf5; surface.dat=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/surface.dat; FreeStream.h5=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/FreeStream.h5"
+transfer_output_remaps = "results=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/results; JetData.h5=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/JetData.h5; final_hadrons.hdf=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/final_hadrons.hdf5; initial.hdf=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/initial.hdf5; surface.dat=Results/\$(input_file)/$timestamp/event-\$(dag_node_name)/surface.dat"
 
 output = stdouterr/\$(input_file)/\$(dag_node_name).out
 error = stdouterr/\$(input_file)/\$(dag_node_name).err
