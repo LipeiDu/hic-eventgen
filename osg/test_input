@@ -1,7 +1,7 @@
 nevents= 1
 avg-ic = on
-system-and-sqrts = AuAu200
-norm = 5.5
+system-and-sqrts = PbPb2760
+norm = 13.9
 centrality-def= entropy
 centrality-low= 0
 centrality-high= 5
