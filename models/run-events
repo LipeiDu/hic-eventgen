@@ -153,6 +153,10 @@ parser.add_argument(
     help='if on, generate 500 IC events in the centrality bin and take average'
 )
 parser.add_argument(
+    '--afterburner', default='off', metavar='VAR',
+    help='if on, perform afterburner (important to compare to exp.)'
+)
+parser.add_argument(
     '--rankvar', metavar='VAR',
     help='environment variable containing process rank'
 )
@@ -240,6 +244,37 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     Return True if at least one event completed successfully, otherwise False.
 
     """
+    ##########################################################################
+    ##################Data type, format#######################################
+    ##########################################################################
+    # species (name, ID) for identified particle observables
+    species = [
+        ('pion', 211),
+        ('kaon', 321),
+        ('proton', 2212),
+        ('Lambda', 3122),
+        ('Sigma0', 3212),
+        ('Xi', 3312),
+        ('Omega', 3334),
+    ]
+    # fully specify numeric data types, including endianness and size, to
+    # ensure consistency across all machines
+    float_t = '<f8'
+    int_t = '<i8'
+    complex_t = '<c16'
+    # results "array" (one element)
+    # to be overwritten for each event
+    results = np.empty((), dtype=[
+        ('initial_entropy', float_t),
+        ('nsamples', int_t),
+        ('dNch_deta', float_t),
+        ('dET_deta', float_t),
+        ('dN_dy', [(s, float_t) for (s, _) in species]),
+        ('mean_pT', [(s, float_t) for (s, _) in species]),
+        ('pT_fluct', [('N', int_t), ('sum_pT', float_t), ('sum_pTsq', float_t)]),
+        ('flow', [('N', int_t), ('Qn', complex_t, 8)])
+    ])
+
     # set the grid step size proportionally to the nucleon width
     grid_step = args.grid_step
     # the "target" grid max: the grid shall be at least as large as the target
@@ -253,44 +288,41 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         grid_step, grid_n, grid_max
     )
 
+
     def _initial_conditions(nevents=1, initial_file='initial.hdf', avg='off'):
         """
         Run trento and yield initial condition arrays.
 
         """
         def average_ic(fname):
-            f = h5py.File(fname, 'a')
-            densityavg = np.zeros_like(f['event_0/matter_density'].value)
-            Ncollavg = np.zeros_like(f['event_0/matter_density'].value)
-            dxy = f['event_0'].attrs['dxy']
-            Neve = len(f.values())
-            for eve in f.values():
-                # step1, center the event
-                NL = int(eve.attrs['Nx']/2)
-                density = eve['matter_density'].value
-                comxy = -np.array(center_of_mass(density))+np.array([NL, NL])
-                density = shift(density, comxy)
-                Ncoll = shift(eve['Ncoll_density'].value, comxy)
-                # step2, rotate the event to align psi2
-                psi2 = eve.attrs['psi2']
-                imag_psi2 = psi2*180./np.pi + (90. if psi2<0 else -90.)
-                densityavg += rotate(density, angle=imag_psi2, reshape=False)
-                Ncollavg += rotate(Ncoll, angle=imag_psi2, reshape=False)    
-            # step3 take average
-            densityavg /= Neve
-            Ncollavg /= Neve
-            f.close()
-            # clean up the initial.hdf file
-            f = h5py.File(fname,'w')
-            for k in f:
-                del f[k]
-            gp = f.create_group('avg_event')
-            gp.create_dataset('matter_density', data=densityavg)
-            gp.create_dataset('Ncoll_density', data=Ncollavg)
-            gp.attrs.create('Nx', densityavg.shape[1])
-            gp.attrs.create('Ny', densityavg.shape[0])
-            gp.attrs.create('dxy', dxy)            
-            f.close()
+            with h5py.File(fname, 'a') as f:
+                densityavg = np.zeros_like(f['event_0/matter_density'].value)
+                Ncollavg = np.zeros_like(f['event_0/matter_density'].value)
+                dxy = f['event_0'].attrs['dxy']
+                Neve = len(f.values())
+                for eve in f.values():
+                    # step1, center the event
+                    NL = int(eve.attrs['Nx']/2)
+                    density = eve['matter_density'].value
+                    comxy = -np.array(center_of_mass(density))+np.array([NL, NL])
+                    density = shift(density, comxy)
+                    Ncoll = shift(eve['Ncoll_density'].value, comxy)
+                    # step2, rotate the event to align psi2
+                    psi2 = eve.attrs['psi2']
+                    imag_psi2 = psi2*180./np.pi + (90. if psi2<0 else -90.)
+                    densityavg += rotate(density, angle=imag_psi2, reshape=False)
+                    Ncollavg += rotate(Ncoll, angle=imag_psi2, reshape=False)    
+                # step3 take average
+                densityavg /= Neve
+                Ncollavg /= Neve
+            # rewrite the initial.hdf file with average ic
+            with h5py.File(fname, 'w') as f:
+                gp = f.create_group('avg_event')
+                gp.create_dataset('matter_density', data=densityavg)
+                gp.create_dataset('Ncoll_density', data=Ncollavg)
+                gp.attrs.create('Nx', densityavg.shape[1])
+                gp.attrs.create('Ny', densityavg.shape[0])
+                gp.attrs.create('dxy', dxy)            
 
         try:
             os.remove(initial_file)
@@ -385,7 +417,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         initial_conditions = [checkpoint_ic]
 
     # create sampler HRG object (to be reused for all events)
-    hrg_kwargs = dict(species='urqmd', res_width=True)
+    hrg_kwargs = dict(species='urqmd' if args.afterburner=='on' else 'all', res_width=True)
     hrg = frzout.HRG(args.Tswitch, **hrg_kwargs)
 
     # append switching energy density to hydro arguments
@@ -403,80 +435,79 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         # roll ic by index 1 to match hydro
         #ic = np.roll(np.roll(ic, shift=-1, axis=0), shift=-1, axis=1)
         # use same grid settings as hydro output
-        f = h5py.File('JetData.h5','a')
-        taufs = f['Event'].attrs['Tau0'][0]
-        dtau = f['Event'].attrs['dTau'][0]
-        dxy = f['Event'].attrs['DX'][0]
-        ls = f['Event'].attrs['XH'][0]
-        n = 2*ls + 1
-        coarse = int(dxy/grid_step+.5)
-        # [tau0, tau0+dtau, tau0+2*dtau, ..., taufs - dtau] + hydro steps...
-        nsteps = int(taufs/dtau)
-        tau0 = taufs-dtau*nsteps
-        if tau0 < 1e-2: # if tau0 too small, skip the first step
-            tau0 += dtau
-            nsteps -= 1
-        taus = np.linspace(tau0, taufs-dtau, nsteps)
-        # First, rename hydro frames and leave the first few name slots to FS
-        event_gp = f['Event']
-        for i in range(len(event_gp.keys()))[::-1]:
-            old_name = 'Frame_{:04d}'.format(i)
-            new_name = 'Frame_{:04d}'.format(i+nsteps)
-            event_gp.move(old_name, new_name)
-        # Second, overwrite tau0 with FS starting time, and save taufs where
-        # FS and hydro is separated
-        event_gp.attrs.create('Tau0', [tau0])
-        event_gp.attrs.create('TauFS', [taufs])
-        # Thrid, fill the first fill steps with FS results
-        for itau, tau in enumerate(taus):
-            frame = event_gp.create_group('Frame_{:04d}'.format(itau))
-            fs = freestream.FreeStreamer(ic, grid_max, tau)
-            for fmt, data, arglist in [
-                ('e', fs.energy_density, [()]),
-                ('V{}', fs.flow_velocity, [(1,), (2,)]),
-                ('Pi{}{}', fs.shear_tensor, [(0,0), (0,1), (0,2),
-                                                    (1,1), (1,2),
-                                                           (2,2)] ),
-                ]:
-                for a in arglist:
-                    X = data(*a).T # to get the correct x-y with vishnew
-                    if fmt == 'V{}': # Convert u1, u2 to v1, v2
-                        X = X/data(0).T
-                    X = X[::coarse, ::coarse]
-                    diff = X.shape[0] - n
-                    start = int(abs(diff)/2)
-                    if diff > 0:
-                        # original grid is larger -> cut out middle square
-                        s = slice(start, start + n)
-                        X = X[s, s]
-                    elif diff < 0:
-                        # original grid is smaller
-                        #  -> create new array and place original grid in middle
-                        Xn = np.zeros((n, n))
-                        s = slice(start, start + X.shape[0])
-                        Xn[s, s] = X
-                        X = Xn
-                    if fmt == 'V{}':
-                        Comp = {1:'x', 2:'y'}
-                        frame.create_dataset(fmt.format(Comp[a[0]]), data=X)
-                    if fmt == 'e':
-                        frame.create_dataset(fmt.format(*a), data=X)
-                        frame.create_dataset('P', data=X/3.)
-                        frame.create_dataset('BulkPi', data=X*0.)
-                        prefactor = 1.0/15.62687/5.068**3 
-                        frame.create_dataset('Temp', data=(X*prefactor)**0.25)
-                        s = (X + frame['P'].value)/(frame['Temp'].value+1e-14)
-                        frame.create_dataset('s', data=s)
-                    if fmt == 'Pi{}{}': 
-                        frame.create_dataset(fmt.format(*a), data=X)
-            pi33 = -(frame['Pi00'].value + frame['Pi11'].value \
-                                         + frame['Pi22'].value)
-            frame.create_dataset('Pi33', data=pi33)
-            pi3Z = np.zeros_like(pi33)
-            frame.create_dataset('Pi03', data=pi3Z)
-            frame.create_dataset('Pi13', data=pi3Z)
-            frame.create_dataset('Pi23', data=pi3Z)
-        f.close()
+        with h5py.File('JetData.h5','a') as f:
+            taufs = f['Event'].attrs['Tau0'][0]
+            dtau = f['Event'].attrs['dTau'][0]
+            dxy = f['Event'].attrs['DX'][0]
+            ls = f['Event'].attrs['XH'][0]
+            n = 2*ls + 1
+            coarse = int(dxy/grid_step+.5)
+            # [tau0, tau0+dtau, tau0+2*dtau, ..., taufs - dtau] + hydro steps...
+            nsteps = int(taufs/dtau)
+            tau0 = taufs-dtau*nsteps
+            if tau0 < 1e-2: # if tau0 too small, skip the first step
+                tau0 += dtau
+                nsteps -= 1
+            taus = np.linspace(tau0, taufs-dtau, nsteps)
+            # First, rename hydro frames and leave the first few name slots to FS
+            event_gp = f['Event']
+            for i in range(len(event_gp.keys()))[::-1]:
+                old_name = 'Frame_{:04d}'.format(i)
+                new_name = 'Frame_{:04d}'.format(i+nsteps)
+                event_gp.move(old_name, new_name)
+            # Second, overwrite tau0 with FS starting time, and save taufs where
+            # FS and hydro is separated
+            event_gp.attrs.create('Tau0', [tau0])
+            event_gp.attrs.create('TauFS', [taufs])
+            # Thrid, fill the first fill steps with FS results
+            for itau, tau in enumerate(taus):
+                frame = event_gp.create_group('Frame_{:04d}'.format(itau))
+                fs = freestream.FreeStreamer(ic, grid_max, tau)
+                for fmt, data, arglist in [
+                    ('e', fs.energy_density, [()]),
+                    ('V{}', fs.flow_velocity, [(1,), (2,)]),
+                    ('Pi{}{}', fs.shear_tensor, [(0,0), (0,1), (0,2),
+                                                        (1,1), (1,2),
+                                                               (2,2)] ),
+                    ]:
+                    for a in arglist:
+                        X = data(*a).T # to get the correct x-y with vishnew
+                        if fmt == 'V{}': # Convert u1, u2 to v1, v2
+                            X = X/data(0).T
+                        X = X[::coarse, ::coarse]
+                        diff = X.shape[0] - n
+                        start = int(abs(diff)/2)
+                        if diff > 0:
+                            # original grid is larger -> cut out middle square
+                            s = slice(start, start + n)
+                            X = X[s, s]
+                        elif diff < 0:
+                            # original grid is smaller
+                            #  -> create new array and place original grid in middle
+                            Xn = np.zeros((n, n))
+                            s = slice(start, start + X.shape[0])
+                            Xn[s, s] = X
+                            X = Xn
+                        if fmt == 'V{}':
+                            Comp = {1:'x', 2:'y'}
+                            frame.create_dataset(fmt.format(Comp[a[0]]), data=X)
+                        if fmt == 'e':
+                            frame.create_dataset(fmt.format(*a), data=X)
+                            frame.create_dataset('P', data=X/3.)
+                            frame.create_dataset('BulkPi', data=X*0.)
+                            prefactor = 1.0/15.62687/5.068**3 
+                            frame.create_dataset('Temp', data=(X*prefactor)**0.25)
+                            s = (X + frame['P'].value)/(frame['Temp'].value+1e-14)
+                            frame.create_dataset('s', data=s)
+                        if fmt == 'Pi{}{}': 
+                            frame.create_dataset(fmt.format(*a), data=X)
+                pi33 = -(frame['Pi00'].value + frame['Pi11'].value \
+                                             + frame['Pi22'].value)
+                frame.create_dataset('Pi33', data=pi33)
+                pi3Z = np.zeros_like(pi33)
+                frame.create_dataset('Pi03', data=pi3Z)
+                frame.create_dataset('Pi13', data=pi3Z)
+                frame.create_dataset('Pi23', data=pi3Z)
 
     def run_hydro(ic, event_size, coarse=False, dt_ratio=.25):
         """
@@ -571,17 +602,12 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             parts = np.fromiter(
                 (tuple(l.split()) for l in f if not l.startswith(b'#')),
                 dtype=[
-                    ('ID', int),
-                    ('charge', int),
-                    ('pT', float),
-                    ('ET', float),
-                    ('mT', float),
-                    ('phi', float),
-                    ('y', float),
-                    ('eta', float),
+                    ('ID', int), ('charge', int), ('pT', float),
+                    ('ET', float), ('mT', float), ('phi', float),
+                    ('y', float), ('eta', float),
                 ]
             )
-            fout = h5py.File(homefolder+'/final_hadrons.hdf', 'a')
+        with h5py.File(homefolder+'/final_hadrons.hdf', 'a') as fout:
             gpname = 'event_{}'.format(event_id)
             if gpname in fout:
                 del fout[gpname]
@@ -594,40 +620,30 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                         ['i8']*2+['f']*6):
                     gpi.create_dataset(name, data=parts[name][il:ih], 
                                        dtype=dtype)
-            fout.close()
-   
-    # species (name, ID) for identified particle observables
-    species = [
-        ('pion', 211),
-        ('kaon', 321),
-        ('proton', 2212),
-        ('Lambda', 3122),
-        ('Sigma0', 3212),
-        ('Xi', 3312),
-        ('Omega', 3334),
-    ]
 
-    # fully specify numeric data types, including endianness and size, to
-    # ensure consistency across all machines
-    float_t = '<f8'
-    int_t = '<i8'
-    complex_t = '<c16'
+    def calculate_eventplanes(phi):
+        EP_freezeout = {}
+        Ns = phi.size
+        for n in range(1,8):
+            qy = np.sin(n*phi) # array of cos(n*phi_i)
+            Qy = qy.sum()       # Qx = N<cos(n*phi)>
+            qx = np.cos(n*phi) # array of cos(n*phi_i)
+            Qx = qx.sum()       # Qy = N<sin(n*phi)>
+            cov = np.cov([qy*Ns, qx*Ns])/(Ns-1.) # covariance between Qy and Qx array
+            varQy = cov[0,0]; varQx = cov[1,1]; covQxQy = cov[0,1]
+            Psin = np.arctan2(Qy, Qx)/n
+            Psinerr = 1./n*np.sqrt(varQy*Qx**2 + varQx*Qy**2 - 2.*covQxQy*Qy*Qx) \
+                  /(Qy**2+Qx**2)
+            Vn = np.sqrt((Qx**2+Qy**2 - Ns)/Ns/(Ns-1.))
+            Vnerr = np.sqrt(Qx**2*varQx + Qy**2*varQy + 2.*Qx*Qy*covQxQy)\
+                        /Ns/(Ns - 1.)/Vn
+            EP_freezeout[n] = {'Vn' : {'mean': Vn, 'err': Vnerr},
+                               'Psin': {'mean': Psin, 'err': Psinerr}}
+        return EP_freezeout
 
-    # results "array" (one element)
-    # to be overwritten for each event
-    results = np.empty((), dtype=[
-        ('initial_entropy', float_t),
-        ('nsamples', int_t),
-        ('dNch_deta', float_t),
-        ('dET_deta', float_t),
-        ('dN_dy', [(s, float_t) for (s, _) in species]),
-        ('mean_pT', [(s, float_t) for (s, _) in species]),
-        ('pT_fluct', [('N', int_t), ('sum_pT', float_t), ('sum_pTsq', float_t)]),
-        ('flow', [('N', int_t), ('Qn', complex_t, 8)]),
-        ('Psi_n', [ ('mean', float_t, 4), ('err', float_t, 4) ]),
-        ('V_n^2',   [ ('mean', float_t, 4), ('err', float_t, 4) ])
-    ])
-
+    ##########################################################################
+    #########################RUN A Event######################################
+    ##########################################################################
     def run_single_event(ic):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
@@ -656,119 +672,109 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         surface = frzout.Surface(**run_hydro(ic, event_size=rmax), ymax=2)
         logging.info('%d freeze-out cells', len(surface))
 
-        minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
-        minparts = 10**5  # min number of particles to sample
-        nparts = 0  # for tracking total number of sampled particles
-
-        #logging.info('calculate energy flow planes @ freezeout')
-        #Psi_energy_flow = frzout.energy_flow_planes(surface, hrg)
-        logging.info('calculating event planes @ freezeout')
-        count = 0
+        # High precision event planes at freezeout
+        logging.info('calculating high-percision event planes @ freezeout')
         phi = np.empty(0)
-        while count < 10**6:
+        while phi.size < 10**6:
             parts = frzout.sample(surface, hrg)
-            count += parts.size
+            abspid = np.abs(parts['ID'])
+            is_pion = (abspid == 111) | (abspid == 211)
             px = parts['p'][:,1]
             py = parts['p'][:,2]
-            phi = np.append(phi, np.arctan2(py, px))
-        EP_freezeout = {}
-        for n in [2,3,4,5]:
-            qy = np.sin(n*phi)
-            Qy = qy.mean()
-            qx = np.cos(n*phi)
-            Qx = qx.mean()
-            Ns = len(phi)
-            cov = np.cov([qy, qx])/(Ns-1.)
-            varQy = cov[0,0]; varQx = cov[1,1]; covQxQy = cov[0,1]
-            err = np.sqrt(varQy/Qx**2 + varQx*Qy**2/Qx**4 - 2.*covQxQy*Qy/Qx**3) \
-                  /n/(1.+Qy**2/Qx**2)
-            vn2 = (Qx**2+Qy**2 - 1./Ns)/(1. - 1./Ns)
-            vn2err = 2.*np.sqrt(Qx**2*varQx + Qy**2*varQy + 2.*Qx*Qy*covQxQy)\
-                        /(1. - 1./Ns)
-            EP_freezeout[n] = {'V_n^2' : {'mean': vn2, 'err': vn2err},
-                               'Psi_n': {'mean': np.arctan2(Qy, Qx)/n, 'err': err}}
+            # select only pion with pT > 0.3 GeV
+            cut = (px**2 + py**2 > 0.3**2) & is_pion
+            phi = np.append(phi, np.arctan2(py[cut], px[cut]))
+        EP_freezeout = calculate_eventplanes(phi)
+        Ns = phi.size
+        del phi # save some space
+        with open(homefolder+"/EventPlanesFrzout.dat",'w') as f:
+            print("# {} pions (pT>.3, |y|<2.0) are sampled to calculate the event-planes".format(Ns),file=f)
+            print("# order\tV_n\tV_n-err\tPsi_n\tPsi_n-err", file=f)
+            for n in range(1,8):
+                ep = EP_freezeout[n]
+                print(n, ep['Vn']['mean'], ep['Vn']['err'], 
+                    ep['Psin']['mean'], ep['Psin']['err'], file=f)
 
-        for obs in ['V_n^2', 'Psi_n']:
-            for value in ['mean', 'err']:
-                results[obs][value] = \
-                    np.array([EP_freezeout[n][obs][value] for n in [2,3,4,5]])
+        if args.afterburner == 'on':
+            # Sampling particle for UrQMD events
+            logging.info('sampling surface with frzout')
+            minsamples, maxsamples = 10, 1000  # reasonable range for nsamples
+            minparts = 10**5  # min number of particles to sample
+            nparts = 0  # for tracking total number of sampled particles
+            with open('particles_in.dat', 'w') as f:
+                for nsamples in range(1, maxsamples + 1):
+                    parts = frzout.sample(surface, hrg)
+                    if parts.size == 0:
+                        continue
+                    nparts += parts.size
+                    print('#', parts.size, file=f)
+                    for p in parts:
+                        print(p['ID'], *p['x'], *p['p'], file=f)
+                    if nparts >= minparts and nsamples >= minsamples:
+                        break
+            # try to free some memory
+            # (up to ~a few hundred MiB for ultracentral collisions)
+            del surface
+            results['nsamples'] = nsamples
+            logging.info('produced %d particles in %d samples', nparts, nsamples)
 
+            # Stop event if nothing produced
+            if nparts == 0:
+                raise StopEvent('no particles produced')
 
-        logging.info('sampling surface with frzout')
+            # hadronic afterburner
+            run_cmd('afterburner particles_in.dat particles_out.dat')
 
-        with open('particles_in.dat', 'w') as f:
-            for nsamples in range(1, maxsamples + 1):
-                parts = frzout.sample(surface, hrg)
-                if parts.size == 0:
-                    continue
-                nparts += parts.size
-                print('#', parts.size, file=f)
-                for p in parts:
-                    print(p['ID'], *p['x'], *p['p'], file=f)
-                if nparts >= minparts and nsamples >= minsamples:
-                    break
+            # read final particle data
+            with open('particles_out.dat', 'rb') as f:
+                parts = np.fromiter(
+                    (tuple(l.split()) for l in f if not l.startswith(b'#')),
+                    dtype=[
+                        ('ID', int),
+                        ('charge', int),
+                        ('pT', float),
+                        ('ET', float),
+                        ('mT', float),
+                        ('phi', float),
+                        ('y', float),
+                        ('eta', float),
+                    ]
+                )
+            logging.info('computing observables')
+            charged = (parts['charge'] != 0)
+            abs_eta = np.fabs(parts['eta'])
 
-        logging.info('produced %d particles in %d samples', nparts, nsamples)
+            results['dNch_deta'] = \
+                np.count_nonzero(charged & (abs_eta < .5)) / nsamples
 
-        if nparts == 0:
-            raise StopEvent('no particles produced')
+            ET_eta = .6
+            results['dET_deta'] = \
+                parts['ET'][abs_eta < ET_eta].sum() / (2*ET_eta) / nsamples
 
-        # try to free some memory
-        # (up to ~a few hundred MiB for ultracentral collisions)
-        del surface
+            abs_ID = np.abs(parts['ID'])
+            midrapidity = (np.fabs(parts['y']) < .5)
+            pT = parts['pT']
+            phi = parts['phi']
+            for name, i in species:
+                cut = (abs_ID == i) & midrapidity
+                N = np.count_nonzero(cut)
+                results['dN_dy'][name] = N / nsamples
+                results['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
 
-        results['nsamples'] = nsamples
+            pT_alice = pT[charged & (abs_eta < .8) & (.15 < pT) & (pT < 2.)]
+            results['pT_fluct']['N'] = pT_alice.size
+            results['pT_fluct']['sum_pT'] = pT_alice.sum()
+            results['pT_fluct']['sum_pTsq'] = np.inner(pT_alice, pT_alice)
 
-        # hadronic afterburner
-        run_cmd('afterburner particles_in.dat particles_out.dat')
-
-        # read final particle data
-        with open('particles_out.dat', 'rb') as f:
-            parts = np.fromiter(
-                (tuple(l.split()) for l in f if not l.startswith(b'#')),
-                dtype=[
-                    ('ID', int),
-                    ('charge', int),
-                    ('pT', float),
-                    ('ET', float),
-                    ('mT', float),
-                    ('phi', float),
-                    ('y', float),
-                    ('eta', float),
-                ]
-            )
-        logging.info('computing observables')
-        charged = (parts['charge'] != 0)
-        abs_eta = np.fabs(parts['eta'])
-
-        results['dNch_deta'] = \
-            np.count_nonzero(charged & (abs_eta < .5)) / nsamples
-
-        ET_eta = .6
-        results['dET_deta'] = \
-            parts['ET'][abs_eta < ET_eta].sum() / (2*ET_eta) / nsamples
-
-        abs_ID = np.abs(parts['ID'])
-        midrapidity = (np.fabs(parts['y']) < .5)
-        pT = parts['pT']
-        phi = parts['phi']
-        for name, i in species:
-            cut = (abs_ID == i) & midrapidity
-            N = np.count_nonzero(cut)
-            results['dN_dy'][name] = N / nsamples
-            results['mean_pT'][name] = (0. if N == 0 else pT[cut].mean())
-
-        pT_alice = pT[charged & (abs_eta < .8) & (.15 < pT) & (pT < 2.)]
-        results['pT_fluct']['N'] = pT_alice.size
-        results['pT_fluct']['sum_pT'] = pT_alice.sum()
-        results['pT_fluct']['sum_pTsq'] = np.inner(pT_alice, pT_alice)
-
-        phi_alice = phi[charged & (abs_eta < .8) & (.2 < pT) & (pT < 5.)]
-        results['flow']['N'] = phi_alice.size
-        results['flow']['Qn'] = [
-            np.exp(1j*n*phi_alice).sum()
-            for n in range(1, results.dtype['flow']['Qn'].shape[0] + 1)
-        ]
+            phi_alice = phi[charged & (abs_eta < 1.) & (.15 < pT) & (pT < 2.)]
+            results['flow']['N'] = phi_alice.size
+            results['flow']['Qn'] = [
+                np.exp(1j*n*phi_alice).sum()
+                for n in range(1, results.dtype['flow']['Qn'].shape[0] + 1)
+            ]
+        else:
+            logging.info("Event without hadronic afterburner")
+            logging.info("Afterburner is important if to be compared to exp!")
 
     nfail = 0
 
@@ -780,7 +786,8 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             run_single_event(ic)
             # save a copy of oversampled final particle list 
             # its numbering still starts from 0
-            save_final_particle_list('particles_out.dat', n-1)
+            if args.afterburner == 'on':
+                save_final_particle_list('particles_out.dat', n-1)
 
         except StopEvent as e:
             logging.info('event stopped: %s', e)

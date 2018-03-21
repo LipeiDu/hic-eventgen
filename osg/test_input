@@ -1,14 +1,15 @@
 nevents= 1
-avg-ic = on
-system-and-sqrts = AuAu200
-norm = 5.5
+avg-ic = off
+afterburner = off
+system-and-sqrts = PbPb5020
+norm = 18.4
 centrality-def= entropy
-centrality-low= 0
-centrality-high= 5
+centrality-low= 40
+centrality-high= 60
 nucleon-width= 0.96
-tau-fs= 1.2
-trento-args= Pb Pb -x 4.2 -p 0. -k 1.2 --ncoll
+tau-fs= 0.6
+trento-args= Pb Pb -x 7.0 -p 0. -k 1.2 --ncoll
 grid-step=.1
-hydro-args= stop=0.140 min=0.08 slope=1.1 curvature=-0.5 zetas_max=0.05 zetas_width=0.02 zetas_t0=0.180 iskip_t=2 iskip_xy=2
+hydro-args= stop=0.150 min=0.08 slope=1.1 curvature=-0.5 zetas_max=0.05 zetas_width=0.02 zetas_t0=0.180 iskip_t=4 iskip_xy=2
 Tswitch= 0.151
 
