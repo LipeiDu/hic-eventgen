@@ -566,9 +566,25 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             't0={} dt={} dxy={} nls={}'.format(args.tau_fs, dt, dxy, ls),
             *(hydro_args_coarse if coarse else hydro_args)
         )
+        surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 26)
+        #Hyper surface output: 
+        #Columns: 0    1  2  3    4.................7  8........10
+        #Names  : tau  x  y  eta  ds_(tau, x, y, eta)  v_(x,y,eta)
+        #Columns: 11     12    13    14    15    16    17    18    19    20
+        #Names  : pi_00  pi01  pi02  pi03  pi11  pi12  pi13  pi22  pi23  pi33
+        #Columns: 21      22  23  24  25
+        #Namse  : BulkPi, T   e   P   mu_B
 
-        surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
-
+        # add e, P, T, mub to surface.dat
+        # Ts = hrg.T
+        # es = hrg.energy_density()
+        # Ps = hrg.pressure()
+        # mub = 0.
+        # surface_more_info = np.append(surface, 
+        #                          np.repeat([[Ts, es, Ps, mub]], surface.shape[0], axis=0), 
+        #                          axis=1)
+        # surface_more_info.tofile('surface.dat')
+        # del surface_more_info
         if not coarse:
             # only cp back info for the actually run, not the coarse run
             subprocess.call('mv ./surface.dat {}'.format(homefolder), shell=True)
@@ -589,9 +605,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
         # pack surface data into a dict suitable for passing to frzout.Surface
         return dict(
-            zip(['x', 'sigma', 'v'], np.hsplit(surface, [3, 6, 8])),
-            pi=dict(zip(['xx', 'xy', 'yy'], surface.T[11:14])),
-            Pi=surface.T[15]
+            x=surface[:, 0:3],
+            sigma=surface[:, 4:7],
+            v=surface[:, 8:10],
+            pi=dict(xx=surface.T[15],xy=surface.T[16], yy=surface.T[18]),
+            Pi=surface.T[21]
         )
 
     def save_final_particle_list(fname, event_id):
@@ -675,7 +693,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         # High precision event planes at freezeout
         logging.info('calculating high-percision event planes @ freezeout')
         phi = np.empty(0)
+        count = 0
         while phi.size < 10**6:
+            if phi.size > count*50000:
+                logging.info("{} particles accepted".format(phi.size))
+                count += 1
             parts = frzout.sample(surface, hrg)
             abspid = np.abs(parts['ID'])
             is_pion = (abspid == 111) | (abspid == 211)
