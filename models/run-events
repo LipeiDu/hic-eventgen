@@ -575,16 +575,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         #Columns: 21      22  23  24  25
         #Namse  : BulkPi, T   e   P   mu_B
 
-        # add e, P, T, mub to surface.dat
-        # Ts = hrg.T
-        # es = hrg.energy_density()
-        # Ps = hrg.pressure()
-        # mub = 0.
-        # surface_more_info = np.append(surface, 
-        #                          np.repeat([[Ts, es, Ps, mub]], surface.shape[0], axis=0), 
-        #                          axis=1)
-        # surface_more_info.tofile('surface.dat')
-        # del surface_more_info
         if not coarse:
             # only cp back info for the actually run, not the coarse run
             subprocess.call('mv ./surface.dat {}'.format(homefolder), shell=True)
@@ -596,12 +586,6 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         # events where the initial condition doesn't exceed Tswitch
         if surface.size == 0:
             raise StopEvent('empty surface')
-
-        # surface columns:
-        #   0    1  2  3         4         5         6    7
-        #   tau  x  y  dsigma_t  dsigma_x  dsigma_y  v_x  v_y
-        #   8     9     10    11    12    13    14    15
-        #   pitt  pitx  pity  pixx  pixy  piyy  pizz  Pi
 
         # pack surface data into a dict suitable for passing to frzout.Surface
         return dict(
