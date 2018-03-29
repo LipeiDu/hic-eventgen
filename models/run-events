@@ -288,6 +288,26 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         grid_step, grid_n, grid_max
     )
 
+    def save_initial_condition(path):
+        # holder for the data
+        attrs = {}
+        data = {}
+        # load attributes and data to the holder
+        with h5py.File(path, 'r') as f:
+            for name in f['event_0'].attrs:
+                attrs[name] = f['event_0'].attrs[name]
+            for name in f['event_0'].keys():
+                data[name] = f['event_0'][name].value
+        # write Transposed dataset to the file "initial-T.hdf"
+        with h5py.File(homefolder+"/initial.hdf5", 'w') as f:
+            gp = f.create_group('event_0')
+            for name in attrs:
+                gp.attrs.create(name, attrs[name])
+            for name in data:
+                # take transpose here, with the same level of compression as before
+                gp.create_dataset(name, data=data[name].T, 
+                                  compression="gzip", compression_opts=4)
+        # done
 
     def _initial_conditions(nevents=1, initial_file='initial.hdf', avg='off'):
         """
@@ -389,8 +409,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             logging.info("taking average over 500 trento events")
             average_ic(initial_file)
 
-        subprocess.call('cp {} {}'.format(initial_file, homefolder), shell=True)
+        ### create a transpose IC file (to match hydro grid) in the homefolder
+        save_initial_condition(initial_file)
 
+        ### create iterable initial conditon generator
         with h5py.File(initial_file, 'r') as f:
             for dset in f.values():
                 ic = np.array(dset['matter_density'])
