@@ -20,8 +20,8 @@ It is again a hdf5 format file and you can use either command line tool `h5ls` o
 surface.dat, it contains freezeout information. It does not takes a huge disk space, we can keep it in case 
 someone wants to sample more particles from it. It is in binary format. It can be loaded into python by a function below.
 
-## final_hadrons.hdf5
-final_hadrons.hdf5, it contains hadrons after UrQMD kinetic freezeout, for each hydro event, there may be 
+## final_hadrons.hdf
+final_hadrons.hdf, it contains hadrons after UrQMD kinetic freezeout, for each hydro event, there may be 
 multiple oversamples of UrQMD events to increase statistics (and they are stored separately in this file).
 
 ## results
