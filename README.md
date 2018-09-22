@@ -20,7 +20,7 @@ _heavy-ion collision event generator_
 
 ## Du's notes
 - The event plane on the freeze-out surface is calculated and output as `EventPlanesFrzout.dat`.
-- Five output files: `initial.hdf`,`JetData.h5`,`surface.da`,`final_hadrons.hdf5`,`esults`.
+- Six output files: `initial.hdf`,`JetData.h5`,`surface.dat`, `EventPlanesFrzout.dat`, `final_hadrons.hdf5`,`esults`.
 
 
 ## Physics models
