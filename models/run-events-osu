@@ -20,7 +20,12 @@ from scipy.ndimage.interpolation import rotate, shift
 import freestream
 import frzout
 
-
+##########################################################################
+#                                                                        #
+#                                  Setup                                 #
+#                                                                        #
+##########################################################################
+    
 def run_cmd(*args):
     """
     Run and log a subprocess.
@@ -232,6 +237,14 @@ parser.add_argument(
 class StopEvent(Exception):
     """ Raise to end an event early. """
 
+    
+
+##########################################################################
+#                                                                        #
+#                               Run Events                               #
+#                                                                        #
+##########################################################################
+
 
 def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     """
@@ -244,9 +257,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
     Return True if at least one event completed successfully, otherwise False.
 
     """
-    ##########################################################################
-    ##################Data type, format#######################################
-    ##########################################################################
+    ######################################################################
+    #                               Data format                          #
+    ######################################################################
+    
     # species (name, ID) for identified particle observables
     species = [
         ('pion', 211),
@@ -287,6 +301,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         'grid step = %.6f fm, n = %d, max = %.6f fm',
         grid_step, grid_n, grid_max
     )
+    
+    ######################################################################
+    #                           Initial condition                        #
+    ######################################################################
 
     def save_initial_condition(path):
         # holder for the data
@@ -438,6 +456,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         # just run the checkpointed IC
         initial_conditions = [checkpoint_ic]
 
+    ######################################################################
+    #                               Hydrodynamics                        #
+    ######################################################################
+    
     # create sampler HRG object (to be reused for all events)
     hrg_kwargs = dict(species='urqmd' if args.afterburner=='on' else 'all', res_width=True)
     hrg = frzout.HRG(args.Tswitch, **hrg_kwargs)
@@ -618,6 +640,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             Pi=surface.T[21]
         )
 
+    ######################################################################
+    #                             Freezeout & Haron                      #
+    ######################################################################
+    
     def save_final_particle_list(fname, event_id):
         with open('particles_out.dat', 'rb') as f:
             delim = np.array([0]+[l.split()[4] for l in f if l.startswith(b'#')],
@@ -665,9 +691,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                                'Psin': {'mean': Psin, 'err': Psinerr}}
         return EP_freezeout
 
-    ##########################################################################
-    #########################RUN A Event######################################
-    ##########################################################################
+    ######################################################################
+    #                                Single event                        #
+    ######################################################################
+    
     def run_single_event(ic):
         """
         Run the initial condition event contained in HDF5 dataset object `ic`
@@ -806,6 +833,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
     nfail = 0
 
+    ######################################################################
+    #                               n events                             #
+    ######################################################################
+    
     # run each initial condition event and save results to file
     for n, ic in enumerate(initial_conditions, start=1):
         logging.info('starting event %d', n)
@@ -831,6 +862,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         results_file.write(results.tobytes())
         logging.info('event %d completed successfully', n)
 
+        
+    ######################################################################
+    #                                Final check                         #
+    ######################################################################
+    
     # end of events: if running with a checkpoint, delete the file unless this
     # was a failed re-run of a checkpoint event
     if args.checkpoint is not None:
@@ -844,6 +880,13 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             logging.info('removed checkpoint file %s', args.checkpoint)
 
     return n > nfail
+
+
+##########################################################################
+#                                                                        #
+#                                  Main                                  #
+#                                                                        #
+##########################################################################
 
 
 def main():
