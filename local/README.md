@@ -56,8 +56,23 @@ In the venv example above, these criteria can be satisfied by running
 export PATH="/path/to/venv/bin:$PATH"
 export XDG_DATA_HOME="/path/to/venv/share"
 ```
+In my case
+```
+export PATH="/Users/Lipei/miniconda3/envs/hicgen/bin:$PATH"
+export XDG_DATA_HOME="/Users/Lipei/miniconda3/envs/hicgen/share"
+```
+
 Alternatively, use [run-events-wrapper](../models/run-events-wrapper), a simple script that sets the necessary variables and then forwards all arguments to `run-events`.
 It is installed to the `bin` directory of the environment, alongside `run-events` itself.
 It may be run using its full path:
 
     /path/to/venv/bin/run-events-wrapper arguments...
+    
+## run events
+
+Do
+```
+run-events @test_input results
+```
+If `run-events` is changed, under `local/` run `install` again to overwrite the previously installed `run-event`.
+
