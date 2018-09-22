@@ -11,7 +11,7 @@ Prerequisites:
 
 Clone the repository with the `--recursive` option to acquire all submodules.
 ```
-git clone --recursive -b hydro-profile https://github
+git clone --recursive -b hydro-profile https://github.com/LipeiDu/hic-eventgen-x.git
 ````
 
 The models must be installed into an active Python [virtual environment](https://docs.python.org/3/library/venv.html) (venv) or a [conda environment](https://conda.io/docs/user-guide/tasks/manage-environments.html) (I suggest using [Miniconda](https://conda.io/miniconda.html)).
@@ -21,13 +21,17 @@ If Python and its packages are already installed on your system, the easiest cho
 python -m venv --system-site-packages --without-pip /path/to/venv
 source /path/to/venv/bin/activate
 ```
-Or if using conda:
+Or if using conda (e.g. `<env_name>` to be `hicgen`):
 ```bash
 conda create -n <env_name> numpy scipy cython h5py
 source activate <env_name>
 ```
 
-After creating and activating the environment, simply run the [install](install) script.
+After creating and activating the environment, simply run the [install](install) script:
+```
+CMAKE_PREFIX_PATH=/usr
+./install
+```
 
 __Possible issue:__
 When building the `trento` model inside a conda environment, you may see CMake warnings about "cannot generate a safe runtime search path..."
