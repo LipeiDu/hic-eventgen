@@ -10,6 +10,9 @@ Prerequisites:
 - Boost and HDF5 C++ libraries
 
 Clone the repository with the `--recursive` option to acquire all submodules.
+```
+git clone --recursive -b hydro-profile https://github
+````
 
 The models must be installed into an active Python [virtual environment](https://docs.python.org/3/library/venv.html) (venv) or a [conda environment](https://conda.io/docs/user-guide/tasks/manage-environments.html) (I suggest using [Miniconda](https://conda.io/miniconda.html)).
 
