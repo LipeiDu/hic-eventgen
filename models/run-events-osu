@@ -334,6 +334,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         Run trento and yield initial condition arrays.
 
         """
+        
+        #=================================================================#
+        #                    Averaged initial condition                   #
+        #=================================================================#
+    
         def average_ic(fname):
             with h5py.File(fname, 'a') as f:
                 densityavg = np.zeros_like(f['event_0/matter_density'].value)
@@ -368,6 +373,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             os.remove(initial_file)
         except FileNotFoundError:
             pass
+        
+        
+        #=================================================================#
+        #                       Centrality seclection                     #
+        #=================================================================#
         
         logging.info("Use {} to define centrality.".format(args.centrality_def))
         logging.info("{} < centrality(%) < {}".format(args.centrality_low, 
@@ -415,6 +425,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         if avg == 'on':
             logging.info("averaged initial condition mode, could take a while")
 
+        #=================================================================#
+        #                             Run Trento                          #
+        #=================================================================#
+        
         run_cmd(
             'trento',
             '--number-events {}'.format(nevents if avg=='off' else 500),
@@ -573,6 +587,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         (dt = dt_ratio * dxy).  The SHASTA algorithm requires dt_ratio < 1/2.
 
         """
+        
+        #=================================================================#
+        #                           Free streaming                        #
+        #=================================================================#
+        
         # first freestream
         fs = freestream.FreeStreamer(ic, grid_max, args.tau_fs)
         dxy = grid_step * (coarse or 1)
@@ -606,6 +625,10 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
 
                 X.tofile(fmt.format(*a) + '.dat')
 
+        #=================================================================#
+        #                             Run Hydro                           #
+        #=================================================================#
+        
         dt = dxy*dt_ratio
         run_cmd(
             'osu-hydro',
@@ -703,6 +726,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         and save observables to `results`.
 
         """
+        
+        #=================================================================#
+        #                        Initial condition                        #
+        #=================================================================#
+        
         results.fill(0)
         results['initial_entropy'] = ic.sum() * grid_step**2
 
@@ -713,13 +741,21 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
             'free streaming initial condition for %.3f fm',
             args.tau_fs
         )
-
+        
+        #=================================================================#
+        #                         Freestream+hydro                        #
+        #=================================================================#
+        
         # run coarse event on large grid and determine max radius
         rmax = math.sqrt((
             run_hydro(ic, event_size=27, coarse=3)['x'][:, 1:3]**2
         ).sum(axis=1).max())
         logging.info('rmax = %.3f fm', rmax)
-
+        
+        #=================================================================#
+        #                            Freeze-out                           #
+        #=================================================================#
+        
         # now run normal event with size set to the max radius
         # and create sampler surface object
         surface = frzout.Surface(**run_hydro(ic, event_size=rmax), ymax=2)
@@ -751,7 +787,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
                 ep = EP_freezeout[n]
                 print(n, ep['Vn']['mean'], ep['Vn']['err'], 
                     ep['Psin']['mean'], ep['Psin']['err'], file=f)
-
+                
+        #=================================================================#
+        #                             Afterburner                         #
+        #=================================================================#
+        
         if args.afterburner == 'on':
             # Sampling particle for UrQMD events
             logging.info('sampling surface with frzout')
