@@ -26,7 +26,7 @@ for i in models/*/; do
 
   # determine whether to build with CMake or python
   if [[ $i == *osu-hydro* ]]; then
-    export FC=/usr/local/bin/h5fc
+    export FC=/Users/Lipei/miniconda3/envs/hicgen/bin/h5fc
     #"Put the link to your local h5fc compiler here"
     #export FFLAGS='-ffast-math'
   fi
@@ -53,7 +53,7 @@ for i in models/*/; do
     fi
 
     # compile and install
-    make --jobs=1 DESTDIR=$prefix install || exit 1
+    make --jobs=$(nproc) DESTDIR=$prefix install || exit 1
   elif [[ -f setup.py ]]; then
     # install python packages
     # subshell allows temporary environment modification
