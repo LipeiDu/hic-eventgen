@@ -644,9 +644,11 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         if not coarse:
             # only cp back info for the actually run, not the coarse run
             subprocess.call('mv ./surface.dat {}'.format(homefolder), shell=True)
-            logging.info("Save free streaming history with hydro histroy")
-            save_fs_with_hydro(ic)
-            subprocess.call('mv ./JetData.h5 {}'.format(homefolder), shell=True)
+            
+            # saving hydro profile is off
+            #logging.info("Save free streaming history with hydro histroy")
+            #save_fs_with_hydro(ic)
+            #subprocess.call('mv ./JetData.h5 {}'.format(homefolder), shell=True)
             
         # end event if the surface is empty -- this occurs in ultra-peripheral
         # events where the initial condition doesn't exceed Tswitch
