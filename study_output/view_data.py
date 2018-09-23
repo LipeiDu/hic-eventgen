@@ -4,7 +4,7 @@ import numpy as np
 import h5py
 
 def load_surface():
-	surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 16)
+	surface = np.fromfile('surface.dat', dtype='f8').reshape(-1, 26)
 	return dict(
             zip(['x', 'sigma', 'v'], np.hsplit(surface, [3, 6, 8])),
             pi=dict(zip(['xx', 'xy', 'yy'], surface.T[11:14])),
