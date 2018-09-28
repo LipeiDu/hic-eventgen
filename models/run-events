@@ -760,32 +760,7 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         surface = frzout.Surface(**run_hydro(ic, event_size=rmax), ymax=2)
         logging.info('%d freeze-out cells', len(surface))
 
-        # High precision event planes at freezeout
-        logging.info('calculating high-percision event planes @ freezeout')
-        phi = np.empty(0)
-        count = 0
-        while phi.size < 10**6:
-            if phi.size > count*50000:
-                logging.info("{} particles accepted".format(phi.size))
-                count += 1
-            parts = frzout.sample(surface, hrg)
-            abspid = np.abs(parts['ID'])
-            is_pion = (abspid == 111) | (abspid == 211)
-            px = parts['p'][:,1]
-            py = parts['p'][:,2]
-            # select only pion with pT > 0.3 GeV
-            cut = (px**2 + py**2 > 0.3**2) & is_pion
-            phi = np.append(phi, np.arctan2(py[cut], px[cut]))
-        EP_freezeout = calculate_eventplanes(phi)
-        Ns = phi.size
-        del phi # save some space
-        with open(homefolder+"/EventPlanesFrzout.dat",'w') as f:
-            print("# {} pions (pT>.3, |y|<2.0) are sampled to calculate the event-planes".format(Ns),file=f)
-            print("# order\tV_n\tV_n-err\tPsi_n\tPsi_n-err", file=f)
-            for n in range(1,8):
-                ep = EP_freezeout[n]
-                print(n, ep['Vn']['mean'], ep['Vn']['err'], 
-                    ep['Psin']['mean'], ep['Psin']['err'], file=f)
+
                 
         #=================================================================#
         #                             Afterburner                         #
@@ -871,6 +846,33 @@ def run_events(args, results_file, checkpoint_ic=None, homefolder='./'):
         else:
             logging.info("Event without hadronic afterburner")
             logging.info("Afterburner is important if to be compared to exp!")
+            
+            # High precision event planes at freezeout
+            logging.info('calculating high-percision event planes @ freezeout')
+            phi = np.empty(0)
+            count = 0
+            while phi.size < 10**6:
+                if phi.size > count*50000:
+                    logging.info("{} particles accepted".format(phi.size))
+                    count += 1
+                parts = frzout.sample(surface, hrg)
+                abspid = np.abs(parts['ID'])
+                is_pion = (abspid == 111) | (abspid == 211)
+                px = parts['p'][:,1]
+                py = parts['p'][:,2]
+                # select only pion with pT > 0.3 GeV
+                cut = (px**2 + py**2 > 0.3**2) & is_pion
+                phi = np.append(phi, np.arctan2(py[cut], px[cut]))
+            EP_freezeout = calculate_eventplanes(phi)
+            Ns = phi.size
+            del phi # save some space
+            with open(homefolder+"/EventPlanesFrzout.dat",'w') as f:
+                print("# {} pions (pT>.3, |y|<2.0) are sampled to calculate the event-planes".format(Ns),file=f)
+                print("# order\tV_n\tV_n-err\tPsi_n\tPsi_n-err", file=f)
+                for n in range(1,8):
+                    ep = EP_freezeout[n]
+                    print(n, ep['Vn']['mean'], ep['Vn']['err'],
+                        ep['Psin']['mean'], ep['Psin']['err'], file=f)
 
     nfail = 0
 
